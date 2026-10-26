@@ -1,0 +1,9 @@
+# Liste blanche : tout est ignoré sauf les fichiers du dépôt.
+# Les sauvegardes (backup_saves), les zips d'origine et dist/ ne doivent jamais être publiés.
+/*
+!/.gitignore
+!/README.md
+!/LISEZMOI.md
+!/LICENSE
+!/RestartRace/
+!/SkipIntros/
