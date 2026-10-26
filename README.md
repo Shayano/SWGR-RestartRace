@@ -60,11 +60,17 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 ### Verified in game
 
 - The button shows up immediately and the menu stays usable, with a gamepad or a mouse.
-- The race restarts from the beginning, on the same track, several times in a row.
+- The race restarts from the beginning, on the same track, many times in a row.
+- A part that broke during the race is repaired on restart.
 
-**Not verified yet**: the side bet refund and the faulty part restore (no race with a bet and
-damage during testing). With `debug = true`, the log shows the credits before and after each
-restart so this can be checked. Reports are welcome in the issues.
+**Not verified yet**:
+
+- the side bet refund (no race with a bet during testing);
+- keeping the same track when a part broke during the race. In v1.0.0 that case could land on
+  another track; v1.1.0 applies the pending fault before restoring the run, which should fix it.
+
+With `debug = true`, the log shows the credits, parts and track before and after each restart.
+Reports are welcome in the issues.
 
 ## Skip Intros
 

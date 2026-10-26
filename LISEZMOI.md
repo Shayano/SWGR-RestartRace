@@ -60,13 +60,19 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 ### Ce qui est vérifié en jeu
 
 - Le bouton apparaît tout de suite et le menu reste utilisable, à la manette comme à la souris.
-- La course repart du début, sur le même tracé, plusieurs fois de suite.
+- La course repart du début, sur le même tracé, de nombreuses fois de suite.
+- Une pièce tombée en panne pendant la course est réparée au restart.
 - Skip Intros saute les deux vidéos de logos.
 
-**Pas encore vérifié** : le remboursement de la side bet et la restauration des pièces
-défectueuses, faute de course avec mise et dégâts pendant les tests. Avec `debug = true`, le log
-montre les crédits avant et après chaque restart, ce qui permet de le contrôler. Les retours
-sont les bienvenus dans les issues.
+**Pas encore vérifié** :
+
+- le remboursement de la side bet (aucune course avec mise pendant les tests) ;
+- le maintien du même tracé quand une pièce est tombée en panne pendant la course. En v1.0.0,
+  ce cas pouvait mener sur un autre tracé ; la v1.1.0 applique la panne en attente avant de
+  restaurer la run, ce qui devrait le corriger.
+
+Avec `debug = true`, le log montre les crédits, les pièces et le tracé avant et après chaque
+restart. Les retours sont les bienvenus dans les issues.
 
 ## Skip Intros
 

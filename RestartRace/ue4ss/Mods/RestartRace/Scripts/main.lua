@@ -171,10 +171,17 @@ local function take_snapshot(run)
     reward_seed = int(function() return run.mSavedDuringEventInfo.RewardRandomSeed end),
     saved = call(function() return run.mSavedDuringEventInfo.SavedDuringEvent end),
     loading = call(function() return run.mSavedDuringEventInfo.IsLoading end),
+    queued_faults = call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end),
     affixes = {},
   }
   each_affix(run, function(key, affix)
-    s.affixes[key] = { id = affix_id(affix), status = int(function() return affix.Status end) }
+    local second = call(function() return affix.SecondaryAffix end)
+    s.affixes[key] = {
+      id = affix_id(affix),
+      status = int(function() return affix.Status end),
+      second = valid(second) and second or nil,
+      second_addr = valid(second) and call(function() return second:GetAddress() end) or 0,
+    }
   end)
   return s
 end
@@ -194,12 +201,28 @@ local function restore(run, cs, s, with_event)
   if s.credits then call(function() cs:SetLastVisualCreditsValue(s.credits) end) end
   if s.health then call(function() run.PlayerVehicleHealth = s.health end) end
   if s.strikes then call(function() run.Strikes = s.strikes end) end
+  -- Une panne passe la pièce en Faulty et peut lui accrocher un affixe secondaire : on remet les
+  -- deux comme au départ.
+  local parts = 0
   each_affix(run, function(key, affix)
     local was = s.affixes[key]
-    if was and was.status and was.id == affix_id(affix) and int(function() return affix.Status end) ~= was.status then
+    if not was or was.id ~= affix_id(affix) then return end
+    if was.status and int(function() return affix.Status end) ~= was.status then
       call(function() affix.Status = was.status end)
+      parts = parts + 1
+    end
+    local second = call(function() return affix.SecondaryAffix end)
+    local addr = valid(second) and call(function() return second:GetAddress() end) or 0
+    if addr ~= was.second_addr then
+      if was.second_addr == 0 then
+        call(function() affix.SecondaryAffix = CreateInvalidObject() end)
+      elseif valid(was.second) then
+        call(function() affix.SecondaryAffix = was.second end)
+      end
+      parts = parts + 1
     end
   end)
+  if parts > 0 then trace('restored ' .. parts .. ' part field(s)') end
   if with_event then
     if s.seed then call(function() run.mGeneratedEventSeed = s.seed end) end
     if s.rand_initial then call(function() run.mRand.InitialSeed = s.rand_initial end) end
@@ -211,6 +234,18 @@ local function restore(run, cs, s, with_event)
     if s.loading ~= nil then call(function() run.mSavedDuringEventInfo.IsLoading = s.loading end) end
     if s.reward_seed then call(function() run.mSavedDuringEventInfo.RewardRandomSeed = s.reward_seed end) end
   end
+end
+
+-- Une pièce tombée en panne pendant la course reste en file jusqu'au voyage, où le jeu
+-- l'applique ; les effets déclenchés font alors avancer le générateur aléatoire de la run après
+-- notre restauration, et l'événement est régénéré sur un autre tracé. On laisse donc le jeu
+-- appliquer ces pannes avant de restaurer (cette version d'UE4SS ne sait pas vider un TArray).
+local function flush_queued_faults(run, s)
+  local queued = call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end) or 0
+  if queued <= (s.queued_faults or 0) then return end
+  call(function() run:ApplyAffixFaultChanges() end)
+  trace('applied ' .. queued .. ' queued part fault(s) before restoring, '
+    .. tostring(call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end)) .. ' left')
 end
 
 -- Appelé une fois par chargement de course, au premier tick après la création du
@@ -426,6 +461,7 @@ local function travel()
   if not at_event_start(cs, 'before restore') then return end
   local snap = snapshot
   if config.restore_run_state and snap and snap.run_id == int(function() return run.RunId end) then
+    flush_queued_faults(run, snap)
     restore(run, cs, snap, true)
     restore_after_travel = { snap = snap, ticks = 0 }
     trace('restored before travel: ' .. describe(run, cs))
