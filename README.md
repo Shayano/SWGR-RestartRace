@@ -8,8 +8,8 @@ Two independent UE4SS Lua mods for **STAR WARS Galactic Racer** (PC):
 
 Version française : [LISEZMOI.md](LISEZMOI.md).
 
-Tested on 2026-10-26 with the Steam version of the game (build 26133805) and
-UE4SS Galactic Racer Edition 0.9.4.
+Tested on 2026-10-26 on Windows with the Steam version of the game (build 26133805) and
+UE4SS Galactic Racer Edition 0.9.4, then on 2026-10-29 on Linux with Proton.
 
 ## Requirements
 
@@ -30,6 +30,26 @@ in `STAR WARS Galactic Racer\Griffin\Binaries\Win64` (the folder containing
 To check that the mods are loaded, open `Win64\ue4ss\UE4SS.log`: it should contain
 `[RestartRace] Loaded` and `[SkipIntros] Loaded`.
 
+## Linux (Proton)
+
+The mods work under Proton, but UE4SS needs one launch option. UE4SS is loaded through the
+`dwmapi.dll` file in the `Win64` folder, and Wine uses its own copy of that DLL unless told
+otherwise. In Steam, right-click the game, then Properties, General, Launch options:
+
+```
+WINEDLLOVERRIDES="dwmapi=n,b" %command%
+```
+
+Without it, the game starts normally but `UE4SS.log` is not updated and the mods do nothing.
+
+- The game folder is in your Steam library, under
+  `steamapps/common/STAR WARS Galactic Racer/Griffin/Binaries/Win64`. Install the mods there as
+  described above.
+- Under Wine, the times in `UE4SS.log` are in UTC.
+- Saves are in the Proton prefix, under
+  `steamapps/compatdata/4078430/pfx/drive_c/users/steamuser/AppData/Local/StarWarsGalacticRacer/Saved/SaveGames/`
+  in your Steam folder (`~/.local/share/Steam/` by default).
+
 ## Uninstall
 
 Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deleting it, rename its
@@ -45,7 +65,11 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 - It works with a gamepad, keyboard or mouse.
 - When a race starts, the mod records the parts of the run a race can change. Restarting puts
   them back before travelling: credits from before the side bet, vehicle health, strikes, faulty
-  parts and the event generation seed (so you get the same track again).
+  parts, the event generation seed and the other values of the run (so you usually get the same
+  track again).
+- If the restarted race still lands on another track, the mod restarts again, up to twice
+  (`retry_if_track_changes`). If the track is still different after that, the race goes on with
+  the new track and the log says `Track still different`.
 - If the campaign is not at the start of an event when you click, the restart is cancelled
   without changing anything and the race goes on. The log then says `Restart cancelled`.
 
@@ -55,19 +79,22 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 |---|---|
 | `label`, `description` | Button text and description. `nil` follows the game language (English or French). |
 | `restore_run_state` | `true` puts the run back to its race start state. `false` only restarts. |
+| `retry_if_track_changes` | `true` restarts again, up to twice, when the restarted race lands on another track. `false` keeps the new track. |
 | `debug` | `true` logs every restart in detail in `UE4SS.log` (credits, health, parts, track). |
 
 ### Verified in game
 
 - The button shows up immediately and the menu stays usable, with a gamepad or a mouse.
 - The race restarts from the beginning, on the same track, many times in a row.
-- A part that broke during the race is repaired on restart.
+- The side bet is refunded on restart.
+- A part that broke during the race is repaired on restart, and the race stays on the same track.
+- Restarting also works in races that have no campaign map node, such as the first race of a
+  run.
 
-**Not verified yet**:
-
-- the side bet refund (no race with a bet during testing);
-- keeping the same track when a part broke during the race. In v1.0.0 that case could land on
-  another track; v1.1.0 applies the pending fault before restoring the run, which should fix it.
+**Known issue**: on some map nodes, the game picks a different track each time it regenerates the
+race, even though the mod puts back the same run state before each restart. On 2026-10-29, on an
+Act 2 node, the first restart and both automatic restarts each landed on another track. The cause
+is not found yet.
 
 With `debug = true`, the log shows the credits, parts and track before and after each restart.
 Reports are welcome in the issues.
@@ -98,10 +125,15 @@ restart button for this game.
 ## Troubleshooting
 
 - **Nothing happens**: check `Win64\ue4ss\UE4SS.log`. If it does not exist, UE4SS is not loading
-  or cannot write to its folder (Properties, Security, allow write access).
+  or cannot write to its folder (Properties, Security, allow write access). On Linux, check the
+  launch option (see [Linux (Proton)](#linux-proton)).
+- **The game crashes while a race loads** (`Crashdump written to ...\ue4ss\crash_*.dmp`): v1.1.0
+  and earlier crash in races that have no campaign map node, such as the first race of a run.
+  This is fixed after v1.1.0: until the next release, replace `Scripts\main.lua` with the one from
+  this repository.
 - **After a game update**: update UE4SS Galactic Racer Edition first.
-- **Saves**: `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\`. Back them up before trying
-  any mod.
+- **Saves**: `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` on Windows (Linux: see
+  [Linux (Proton)](#linux-proton)). Back them up before trying any mod.
 
 ## License
 

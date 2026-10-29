@@ -7,8 +7,8 @@ Deux mods Lua indépendants pour UE4SS :
 
 English version: [README.md](README.md).
 
-Testés le 26/10/2026 sur la version Steam du jeu (build 26133805) avec UE4SS Galactic Racer
-Edition 0.9.4.
+Testés le 26/10/2026 sous Windows sur la version Steam du jeu (build 26133805) avec UE4SS
+Galactic Racer Edition 0.9.4, puis le 29/10/2026 sous Linux avec Proton.
 
 ## Prérequis
 
@@ -30,6 +30,28 @@ dans le dossier du jeu `STAR WARS Galactic Racer\Griffin\Binaries\Win64` (celui 
 Pour vérifier que les mods sont chargés, ouvrir `Win64\ue4ss\UE4SS.log` : il doit contenir
 `[RestartRace] Loaded` et `[SkipIntros] Loaded`.
 
+## Linux (Proton)
+
+Les mods fonctionnent sous Proton, mais UE4SS a besoin d'une option de lancement. UE4SS se
+charge par le fichier `dwmapi.dll` du dossier `Win64`, et Wine utilise sa propre version de cette
+DLL sauf indication contraire. Dans Steam, clic droit sur le jeu, puis Propriétés, Général,
+Options de lancement :
+
+```
+WINEDLLOVERRIDES="dwmapi=n,b" %command%
+```
+
+Sans cette option, le jeu démarre normalement mais `UE4SS.log` n'est pas mis à jour et les mods
+ne font rien.
+
+- Le dossier du jeu est dans la bibliothèque Steam, sous
+  `steamapps/common/STAR WARS Galactic Racer/Griffin/Binaries/Win64`. Les mods s'y installent
+  comme décrit plus haut.
+- Sous Wine, les heures de `UE4SS.log` sont en UTC.
+- Les sauvegardes sont dans le préfixe Proton, sous
+  `steamapps/compatdata/4078430/pfx/drive_c/users/steamuser/AppData/Local/StarWarsGalacticRacer/Saved/SaveGames/`
+  dans le dossier de Steam (`~/.local/share/Steam/` par défaut).
+
 ## Désinstallation
 
 Supprimer le dossier du mod dans `Win64\ue4ss\Mods\`. Pour le désactiver sans le supprimer,
@@ -44,8 +66,12 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
   campagne (les modes arcade ont déjà leur propre bouton).
 - Il se valide à la manette, au clavier ou à la souris.
 - Au départ de chaque course, le mod note l'état de la run. Au restart, il le remet avant de
-  relancer : crédits d'avant la side bet, santé du véhicule, strikes, pièces défectueuses et
-  graine de génération de l'événement (pour retrouver le même tracé).
+  relancer : crédits d'avant la side bet, santé du véhicule, strikes, pièces défectueuses,
+  graine de génération de l'événement et autres valeurs de la run (pour retrouver en principe le
+  même tracé).
+- Si la course relancée tombe quand même sur un autre tracé, le mod relance encore, jusqu'à 2
+  fois (`retry_if_track_changes`). Si le tracé est toujours différent ensuite, la course continue
+  sur le nouveau tracé et le log indique `Track still different`.
 - Si le jeu n'est pas en "début d'événement" au moment du clic, le restart est annulé sans rien
   modifier et la course continue. Le log indique alors `Restart cancelled`.
 
@@ -55,21 +81,24 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 |---|---|
 | `label`, `description` | Texte du bouton et de sa description. `nil` = selon la langue du jeu (français ou anglais). |
 | `restore_run_state` | `true` : remet la run dans son état du départ. `false` : simple relance, comme le mod d'origine. |
+| `retry_if_track_changes` | `true` : relance encore, jusqu'à 2 fois, si la course relancée tombe sur un autre tracé. `false` : garde le nouveau tracé. |
 | `debug` | `true` : détaille chaque restart dans `UE4SS.log` (crédits, santé, pièces, tracé). |
 
 ### Ce qui est vérifié en jeu
 
 - Le bouton apparaît tout de suite et le menu reste utilisable, à la manette comme à la souris.
 - La course repart du début, sur le même tracé, de nombreuses fois de suite.
-- Une pièce tombée en panne pendant la course est réparée au restart.
+- La side bet est remboursée au restart.
+- Une pièce tombée en panne pendant la course est réparée au restart, et la course reste sur le
+  même tracé.
+- Le restart fonctionne aussi dans les courses sans nœud de campagne, comme la première course
+  d'une run.
 - Skip Intros saute les deux vidéos de logos.
 
-**Pas encore vérifié** :
-
-- le remboursement de la side bet (aucune course avec mise pendant les tests) ;
-- le maintien du même tracé quand une pièce est tombée en panne pendant la course. En v1.0.0,
-  ce cas pouvait mener sur un autre tracé ; la v1.1.0 applique la panne en attente avant de
-  restaurer la run, ce qui devrait le corriger.
+**Problème connu** : sur certains nœuds de la carte, le jeu choisit un autre tracé à chaque fois
+qu'il régénère la course, alors que le mod remet le même état de run avant chaque restart. Le
+29/10/2026, sur un nœud de l'acte 2, le premier restart et les deux relances automatiques sont
+chacun tombés sur un autre tracé. La cause n'est pas encore trouvée.
 
 Avec `debug = true`, le log montre les crédits, les pièces et le tracé avant et après chaque
 restart. Les retours sont les bienvenus dans les issues.
@@ -102,10 +131,15 @@ d'origine d'un bouton de restart pour ce jeu.
 
 - **Rien ne se passe** : regarder `Win64\ue4ss\UE4SS.log`. S'il n'existe pas, UE4SS ne se
   charge pas ou n'a pas le droit d'écrire dans son dossier (Propriétés, Sécurité, autoriser
-  l'écriture).
+  l'écriture). Sous Linux, vérifier l'option de lancement (voir [Linux (Proton)](#linux-proton)).
+- **Le jeu plante au chargement d'une course** (`Crashdump written to ...\ue4ss\crash_*.dmp`) :
+  la v1.1.0 et les versions précédentes plantent dans les courses sans nœud de campagne, comme la
+  première course d'une run. C'est corrigé après la v1.1.0 : en attendant la prochaine release,
+  remplacer `Scripts\main.lua` par celui de ce dépôt.
 - **Après une mise à jour du jeu** : mettre d'abord UE4SS Galactic Racer Edition à jour.
-- **Sauvegardes** : `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\`. En faire une copie
-  avant d'essayer un mod ne coûte rien.
+- **Sauvegardes** : `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` sous Windows (sous
+  Linux, voir [Linux (Proton)](#linux-proton)). En faire une copie avant d'essayer un mod ne
+  coûte rien.
 
 ## Licence
 
