@@ -96,8 +96,17 @@ local function campaign()
   return run, cs
 end
 
+-- RacingGameState de la course chargée, transmis par NotifyOnNewObject. FindAllOf parcourt tous
+-- les objets du jeu sur le thread du jeu (ce build d'UE4SS n'a pas de cache d'objets) : la
+-- boucle ne doit jamais chercher, seulement les actions ponctuelles (search).
+local race_gs = nil
+local function racing_state(search)
+  if not valid(race_gs) and search then race_gs = find_first('RacingGameState') end
+  return valid(race_gs) and race_gs or nil
+end
+
 local function race_in_progress()
-  local gs = find_first('RacingGameState')
+  local gs = racing_state(true)
   return gs ~= nil and call(function() return gs.bIsRaceFinished end) ~= true
 end
 
@@ -126,7 +135,7 @@ local function continue_state(cs) return int(function() return cs:GetContinueRun
 
 -- Nom interne et circuit de la première étape de l'événement en cours (diagnostic).
 local function track_name()
-  local gs = find_first('RacingGameState')
+  local gs = racing_state(false)
   if not gs then return 'nil' end
   return call(function()
     local name = nil
@@ -421,6 +430,12 @@ local function on_race_level()
   end
   snapshot = take_snapshot(run, cs)
   trace('race start: ' .. describe(run, cs))
+  if config.debug then
+    -- Coût d'une recherche d'objets, mesuré une fois par course pendant le chargement.
+    local t0 = os.clock()
+    find_first('RacingGameState')
+    trace(string.format('one object search (FindAllOf) took %.1f ms', (os.clock() - t0) * 1000))
+  end
 end
 
 ---------------------------------------------------------------------------------------------
@@ -741,12 +756,14 @@ local function tick()
     if not valid(w) or install(w, false) then table.remove(new_screens, i) end
   end
 
+  -- Les écrans de pause arrivent par NotifyOnNewObject. On ne cherche qu'au premier tick, pour
+  -- un menu déjà ouvert quand le mod se charge.
+  if tick_no == 1 then
+    local w = find_pause_screen()
+    if w then install(w, true); ui.was_active = true end
+  end
   if not valid(ui.screen) then
     ui.screen, ui.button, ui.was_active = nil, nil, false
-    if tick_no % TICKS_PER_SEC == 0 then
-      local w = find_pause_screen()
-      if w then install(w, true); ui.was_active = true end
-    end
     return
   end
 
@@ -780,7 +797,7 @@ end)
 call(function()
   NotifyOnNewObject('/Script/Griffin.RacingGameState', function(o)
     local name = name_of(o) or ''
-    if not name:find('^Default__') then race_level_loaded = true end
+    if not name:find('^Default__') then race_gs, race_level_loaded = o, true end
   end)
 end)
 
