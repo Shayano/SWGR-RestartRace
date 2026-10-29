@@ -49,6 +49,11 @@ local function valid(o) return o ~= nil and call(function() return o:IsValid() e
 local function same(a, b)
   return valid(a) and valid(b) and call(function() return a:GetAddress() == b:GetAddress() end) == true
 end
+-- GetFName et GetFullName sur un objet nul font planter le jeu (pas d'erreur Lua que pcall
+-- pourrait rattraper) : on vérifie l'objet avant.
+local function name_of(o)
+  return valid(o) and call(function() return o:GetFName():ToString() end) or nil
+end
 
 local function find_first(class_name)
   local all = call(function() return FindAllOf(class_name) end)
@@ -111,7 +116,8 @@ local function each_affix(run, fn)
 end
 
 local function affix_id(affix)
-  return call(function() return affix.PrimaryAffix:GetFullName() end) or '?'
+  local primary = call(function() return affix.PrimaryAffix end)
+  return valid(primary) and call(function() return primary:GetFullName() end) or '?'
 end
 
 local function int(fn) return call(function() return tonumber(fn()) end) end
@@ -128,7 +134,7 @@ local function track_name()
       if name then return end
       local st = e:get()
       name = (call(function() return st.InternalName:ToString() end) or '?') .. '/'
-        .. (call(function() return st.TrackDef:GetFName():ToString() end) or '?')
+        .. (name_of(call(function() return st.TrackDef end)) or '?')
     end)
     return name
   end) or '?'
@@ -144,7 +150,7 @@ local function crumbs_summary(run, field)
       last = call(function() return e:get().track end)
     end)
   end)
-  return count .. '/' .. (valid(last) and (call(function() return last:GetFName():ToString() end) or '?') or '-')
+  return count .. '/' .. (name_of(last) or '-')
 end
 
 -- Toutes les valeurs simples (nombres, booléens, énumérations) déclarées par les classes du
@@ -266,7 +272,7 @@ local function describe(run, cs)
     tostring(int(function() return run.mSavedDuringEventInfo.RewardRandomSeed end)),
     tostring(call(function() return run.mSavedDuringEventInfo.PlayerFailedEvent end)),
     tostring(continue_state(cs)),
-    tostring(call(function() return run:GetCurrentNode():GetFName():ToString() end)),
+    tostring(name_of(call(function() return run:GetCurrentNode() end))),
     track_name(),
     crumbs_summary(run, 'mTrackHistory'),
     crumbs_summary(run, 'mPlayerPath'))
@@ -570,7 +576,7 @@ local function install(w, late)
     -- Menu découvert alors qu'il était déjà ouvert : on rend le focus à "Reprendre" pour ne
     -- pas laisser le menu sans focus après l'insertion.
     if late and valid(resume) then call(function() resume:SetFocus() end) end
-    trace('button added to ' .. (call(function() return w:GetFName():ToString() end) or 'pause menu')
+    trace('button added to ' .. (name_of(w) or 'pause menu')
       .. ', track=' .. track_name())
   end
   refresh_label(b)
@@ -765,7 +771,7 @@ end
 
 call(function()
   NotifyOnNewObject('/Script/Griffin.FuseScreenWidget', function(o)
-    if call(function() return o:GetClass():GetFName():ToString() end) == PAUSE_CLASS then
+    if name_of(call(function() return o:GetClass() end)) == PAUSE_CLASS then
       new_screens[#new_screens + 1] = o
     end
   end)
@@ -773,7 +779,7 @@ end)
 
 call(function()
   NotifyOnNewObject('/Script/Griffin.RacingGameState', function(o)
-    local name = call(function() return o:GetFName():ToString() end) or ''
+    local name = name_of(o) or ''
     if not name:find('^Default__') then race_level_loaded = true end
   end)
 end)
