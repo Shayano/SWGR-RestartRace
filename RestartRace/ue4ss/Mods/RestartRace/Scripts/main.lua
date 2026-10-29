@@ -263,6 +263,94 @@ local function restore_racers(run, saved)
   return n
 end
 
+-- Tableaux de structures de la run dont une course modifie le contenu sans changer la taille :
+-- progression des contrats de sponsor par planète, pilotes proposés en side bet.
+local STRUCT_ARRAYS = { 'VisitedPlanets', 'mAvailableSidebets' }
+
+local function array_struct(obj, field)
+  local st = nil
+  local cls = call(function() return obj:GetClass() end)
+  while not st and valid(cls) do
+    call(function()
+      cls:ForEachProperty(function(p)
+        if not st and call(function() return p:GetFName():ToString() end) == field then
+          st = call(function() return p:GetInner():GetStruct() end)
+        end
+      end)
+    end)
+    cls = call(function() return cls:GetSuperStruct() end)
+  end
+  return valid(st) and st or nil
+end
+
+-- Valeurs simples et références d'objets d'une structure, parents compris.
+local function struct_fields(st)
+  local list = {}
+  while valid(st) do
+    call(function()
+      st:ForEachProperty(function(p)
+        local kind = call(function() return p:GetClass():GetFName():ToString() end)
+        local name = call(function() return p:GetFName():ToString() end)
+        if name and (SCALAR_TYPES[kind] or kind == 'ObjectProperty') then
+          list[#list + 1] = { name = name, object = kind == 'ObjectProperty' }
+        end
+      end)
+    end)
+    st = call(function() return st:GetSuperStruct() end)
+  end
+  return list
+end
+
+-- Un objet nul est noté false.
+local function read_struct_array(obj, field)
+  local fields, items = nil, {}
+  call(function()
+    obj[field]:ForEach(function(i, e)
+      local v = e:get()
+      if not fields then
+        fields = struct_fields(array_struct(obj, field) or call(function() return v:GetStruct() end))
+      end
+      local item = {}
+      for _, f in ipairs(fields) do
+        local x = call(function() return v[f.name] end)
+        if f.object then x = valid(x) and x or false end
+        item[f.name] = x
+      end
+      items[i] = item
+    end)
+  end)
+  return { fields = fields or {}, items = items, count = #items }
+end
+
+-- Seulement si le tableau a gardé sa taille : UE4SS ne sait pas en retirer ou en ajouter.
+local function restore_struct_array(obj, field, saved)
+  if not saved or saved.count == 0 then return 0 end
+  if int(function() return obj[field]:GetArrayNum() end) ~= saved.count then return 0 end
+  local n = 0
+  call(function()
+    obj[field]:ForEach(function(i, e)
+      local v, was = e:get(), saved.items[i]
+      for _, f in ipairs(saved.fields) do
+        local old = was and was[f.name]
+        local cur = call(function() return v[f.name] end)
+        if f.object then
+          if old and not same(cur, old) then
+            call(function() v[f.name] = old end)
+            n = n + 1
+          elseif old == false and valid(cur) then
+            call(function() v[f.name] = CreateInvalidObject() end)
+            n = n + 1
+          end
+        elseif old ~= nil and cur ~= old then
+          call(function() v[f.name] = old end)
+          n = n + 1
+        end
+      end
+    end)
+  end)
+  return n
+end
+
 local function describe(run, cs)
   local faulty = 0
   each_affix(run, function(_, a) if int(function() return a.Status end) == AFFIX_FAULTY then faulty = faulty + 1 end end)
@@ -321,6 +409,11 @@ local function take_snapshot(run, cs)
   s.node_fields = valid(s.node) and read_fields(s.node) or nil
   s.racers = read_racers(run)
   s.cs_fields = read_fields(cs)
+  s.struct_arrays = {}
+  for _, f in ipairs(STRUCT_ARRAYS) do s.struct_arrays[f] = read_struct_array(run, f) end
+  -- Les side bets sont souvent proposées juste après le premier tick : la boucle les capture
+  -- dès qu'elles apparaissent, avant que le joueur ait pu parier.
+  s.sidebets_pending = s.struct_arrays.mAvailableSidebets.count == 0
   each_affix(run, function(key, affix)
     local second = call(function() return affix.SecondaryAffix end)
     s.affixes[key] = {
@@ -349,11 +442,6 @@ end
 -- Réapplique la capture. with_event restaure aussi la génération de l'événement, ce qui n'a de
 -- sens qu'avant le voyage.
 local function restore(run, cs, s, with_event)
-  local fields = restore_fields(run, s.fields) + restore_racers(run, s.racers)
-  if s.node_fields and same(call(function() return run:GetCurrentNode() end), s.node) then
-    fields = fields + restore_fields(s.node, s.node_fields)
-  end
-  if fields > 0 then trace('restored ' .. fields .. ' run field(s)') end
   local cur = int(function() return run.Credits end)
   if s.credits and cur and cur ~= s.credits then
     if s.credits > cur then
@@ -364,6 +452,16 @@ local function restore(run, cs, s, with_event)
     if int(function() return run.Credits end) ~= s.credits then call(function() run.Credits = s.credits end) end
   end
   if s.credits then call(function() cs:SetLastVisualCreditsValue(s.credits) end) end
+  -- Après les crédits : le remboursement du side bet fait aussi monter LifetimeCreditsEarned,
+  -- que la restauration des champs remet à sa valeur du départ.
+  local fields = restore_fields(run, s.fields) + restore_racers(run, s.racers)
+  for _, f in ipairs(STRUCT_ARRAYS) do
+    fields = fields + restore_struct_array(run, f, s.struct_arrays and s.struct_arrays[f])
+  end
+  if s.node_fields and same(call(function() return run:GetCurrentNode() end), s.node) then
+    fields = fields + restore_fields(s.node, s.node_fields)
+  end
+  if fields > 0 then trace('restored ' .. fields .. ' run field(s)') end
   if s.health then call(function() run.PlayerVehicleHealth = s.health end) end
   if s.strikes then call(function() run.Strikes = s.strikes end) end
   -- Une panne passe la pièce en Faulty et peut lui accrocher un affixe secondaire : on remet les
@@ -733,6 +831,14 @@ local function tick()
     if restore_after_travel.ticks > TICKS_PER_SEC * 120 then restore_after_travel = nil end
   end
   if snapshot and not snapshot.track and tick_no % TICKS_PER_SEC == 0 then snapshot.track = known_track() end
+  if snapshot and snapshot.sidebets_pending then
+    local run = campaign()
+    if run and (int(function() return run.mAvailableSidebets:GetArrayNum() end) or 0) > 0 then
+      snapshot.struct_arrays.mAvailableSidebets = read_struct_array(run, 'mAvailableSidebets')
+      snapshot.sidebets_pending = false
+      trace('side bets offered: ' .. snapshot.struct_arrays.mAvailableSidebets.count)
+    end
+  end
   if verify_track then
     verify_track.ticks = verify_track.ticks + 1
     local now = known_track()
