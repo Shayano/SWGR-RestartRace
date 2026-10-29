@@ -20,6 +20,7 @@ local config = {
   label = nil,          -- nil : selon la langue du jeu
   description = nil,    -- nil : selon la langue du jeu
   restore_run_state = true,
+  retry_if_track_changes = true,
   debug = false,
 }
 do
@@ -133,10 +134,124 @@ local function track_name()
   end) or '?'
 end
 
+-- Nombre d'entrées et dernier circuit d'un historique de la run (diagnostic). Le jeu réécrit
+-- la dernière étape de mPlayerPath quand il retire l'événement du nœud pendant le voyage.
+local function crumbs_summary(run, field)
+  local count, last = 0, nil
+  call(function()
+    run[field]:ForEach(function(_, e)
+      count = count + 1
+      last = call(function() return e:get().track end)
+    end)
+  end)
+  return count .. '/' .. (valid(last) and (call(function() return last:GetFName():ToString() end) or '?') or '-')
+end
+
+-- Toutes les valeurs simples (nombres, booléens, énumérations) déclarées par les classes du
+-- jeu sur un objet, plus la taille de ses tableaux. Sert à remettre en place ce qu'une course
+-- a pu modifier sans qu'on sache le nommer, et à loguer ce qui a changé.
+local SCALAR_TYPES = { IntProperty = true, Int64Property = true, Int16Property = true, Int8Property = true,
+  UInt16Property = true, UInt32Property = true, UInt64Property = true, FloatProperty = true,
+  DoubleProperty = true, BoolProperty = true, ByteProperty = true, EnumProperty = true }
+
+local function read_fields(obj)
+  local scalars, arrays = {}, {}
+  local cls = call(function() return obj:GetClass() end)
+  while valid(cls) and (call(function() return cls:GetFullName() end) or ''):find('/Script/Griffin.', 1, true) do
+    call(function()
+      cls:ForEachProperty(function(p)
+        local kind = call(function() return p:GetClass():GetFName():ToString() end)
+        local name = call(function() return p:GetFName():ToString() end)
+        if not name then return end
+        if SCALAR_TYPES[kind] then
+          scalars[name] = call(function() return obj[name] end)
+        elseif kind == 'ArrayProperty' then
+          arrays[name] = call(function() return obj[name]:GetArrayNum() end)
+        end
+      end)
+    end)
+    cls = call(function() return cls:GetSuperStruct() end)
+  end
+  return { scalars = scalars, arrays = arrays }
+end
+
+local RACER_FIELDS = { 'RivalScore', 'PowerLevelModifier', 'bIsRivalrySuppressed' }
+
+local function read_racer(r)
+  local entry = {}
+  for _, f in ipairs(RACER_FIELDS) do entry[f] = call(function() return r[f] end) end
+  return entry
+end
+
+local function read_racers(run)
+  local list = { player = call(function() return read_racer(run.playerRacer) end) or {} }
+  call(function()
+    run.OpponentRacers:ForEach(function(i, e) list[i] = read_racer(e:get()) end)
+  end)
+  return list
+end
+
+local function diff_fields(label, old, new, out)
+  if not old or not new then return end
+  for name, v in pairs(new.scalars) do
+    if old.scalars[name] ~= v then
+      out[#out + 1] = label .. '.' .. name .. ' ' .. tostring(old.scalars[name]) .. '->' .. tostring(v)
+    end
+  end
+  for name, n in pairs(new.arrays) do
+    if old.arrays[name] ~= n then
+      out[#out + 1] = label .. '.' .. name .. ' #' .. tostring(old.arrays[name]) .. '->' .. tostring(n)
+    end
+  end
+end
+
+local function diff_racers(old, new, out)
+  for key, entry in pairs(new) do
+    local was = old[key] or {}
+    for _, f in ipairs(RACER_FIELDS) do
+      if was[f] ~= entry[f] then
+        out[#out + 1] = 'racer' .. tostring(key) .. '.' .. f .. ' ' .. tostring(was[f]) .. '->' .. tostring(entry[f])
+      end
+    end
+  end
+end
+
+-- Valeurs restaurées ailleurs (crédits par les fonctions du jeu) ou qui ne doivent pas bouger.
+local KEEP_FIELDS = { RunId = true, Credits = true }
+
+local function restore_fields(obj, saved)
+  local n = 0
+  for name, v in pairs(saved.scalars) do
+    if not KEEP_FIELDS[name] and v ~= nil and call(function() return obj[name] end) ~= v then
+      call(function() obj[name] = v end)
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function restore_racers(run, saved)
+  local n = 0
+  local function put(r, was)
+    if not was then return end
+    for _, f in ipairs(RACER_FIELDS) do
+      if was[f] ~= nil and call(function() return r[f] end) ~= was[f] then
+        call(function() r[f] = was[f] end)
+        n = n + 1
+      end
+    end
+  end
+  call(function() put(run.playerRacer, saved.player) end)
+  call(function()
+    run.OpponentRacers:ForEach(function(i, e) put(e:get(), saved[i]) end)
+  end)
+  return n
+end
+
 local function describe(run, cs)
   local faulty = 0
   each_affix(run, function(_, a) if int(function() return a.Status end) == AFFIX_FAULTY then faulty = faulty + 1 end end)
-  return string.format('run=%s credits=%s health=%s strikes=%s faulty_parts=%s queued_faults=%s seed=%s rand=%s/%s saved=%s loading=%s reward_seed=%s failed=%s continue=%s node=%s track=%s',
+  return string.format('run=%s credits=%s health=%s strikes=%s faulty_parts=%s queued_faults=%s seed=%s rand=%s/%s saved=%s loading=%s reward_seed=%s failed=%s continue=%s node=%s track=%s history=%s path=%s',
     tostring(int(function() return run.RunId end)),
     tostring(int(function() return run.Credits end)),
     tostring(int(function() return run.PlayerVehicleHealth end)),
@@ -152,13 +267,23 @@ local function describe(run, cs)
     tostring(call(function() return run.mSavedDuringEventInfo.PlayerFailedEvent end)),
     tostring(continue_state(cs)),
     tostring(call(function() return run:GetCurrentNode():GetFName():ToString() end)),
-    track_name())
+    track_name(),
+    crumbs_summary(run, 'mTrackHistory'),
+    crumbs_summary(run, 'mPlayerPath'))
 end
 
 local snapshot = nil              -- état de la run au chargement de la course en cours
 local restore_after_travel = nil  -- { snap, ticks } tant que la course relancée n'a pas chargé
+local verify_track = nil          -- { snap, ticks } : tracé de la course relancée à comparer
+local retry_at = nil              -- tick auquel relancer à nouveau (tracé différent)
 
-local function take_snapshot(run)
+local function known_track()
+  local t = track_name()
+  if t == '?' or t == 'nil' then return nil end
+  return t
+end
+
+local function take_snapshot(run, cs)
   local s = {
     run_id = int(function() return run.RunId end),
     credits = int(function() return run.Credits end),
@@ -173,7 +298,14 @@ local function take_snapshot(run)
     loading = call(function() return run.mSavedDuringEventInfo.IsLoading end),
     queued_faults = call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end),
     affixes = {},
+    track = known_track(),  -- souvent pas encore connu au premier tick, complété par la boucle
+    retries = 0,
   }
+  s.fields = read_fields(run)
+  s.node = call(function() return run:GetCurrentNode() end)
+  s.node_fields = valid(s.node) and read_fields(s.node) or nil
+  s.racers = read_racers(run)
+  s.cs_fields = read_fields(cs)
   each_affix(run, function(key, affix)
     local second = call(function() return affix.SecondaryAffix end)
     s.affixes[key] = {
@@ -186,9 +318,27 @@ local function take_snapshot(run)
   return s
 end
 
+-- Logue ce qui a changé dans la run, le nœud en cours, les adversaires et le CampaignSubsystem
+-- depuis le départ de la course (diagnostic du tirage d'événement).
+local function log_changes(run, cs, s)
+  if not config.debug then return end
+  local out = {}
+  diff_fields('run', s.fields, read_fields(run), out)
+  local node = call(function() return run:GetCurrentNode() end)
+  if s.node_fields and same(node, s.node) then diff_fields('node', s.node_fields, read_fields(node), out) end
+  diff_racers(s.racers, read_racers(run), out)
+  diff_fields('campaign', s.cs_fields, read_fields(cs), out)
+  trace('changed during the race: ' .. (#out > 0 and table.concat(out, ', ') or 'nothing'))
+end
+
 -- Réapplique la capture. with_event restaure aussi la génération de l'événement, ce qui n'a de
 -- sens qu'avant le voyage.
 local function restore(run, cs, s, with_event)
+  local fields = restore_fields(run, s.fields) + restore_racers(run, s.racers)
+  if s.node_fields and same(call(function() return run:GetCurrentNode() end), s.node) then
+    fields = fields + restore_fields(s.node, s.node_fields)
+  end
+  if fields > 0 then trace('restored ' .. fields .. ' run field(s)') end
   local cur = int(function() return run.Credits end)
   if s.credits and cur and cur ~= s.credits then
     if s.credits > cur then
@@ -237,9 +387,9 @@ local function restore(run, cs, s, with_event)
 end
 
 -- Une pièce tombée en panne pendant la course reste en file jusqu'au voyage, où le jeu
--- l'applique ; les effets déclenchés font alors avancer le générateur aléatoire de la run après
--- notre restauration, et l'événement est régénéré sur un autre tracé. On laisse donc le jeu
--- appliquer ces pannes avant de restaurer (cette version d'UE4SS ne sait pas vider un TArray).
+-- l'applique, donc après notre restauration. On le laisse appliquer ces pannes avant de
+-- restaurer, pour que la restauration les annule avant le voyage (cette version d'UE4SS ne
+-- sait pas vider un TArray).
 local function flush_queued_faults(run, s)
   local queued = call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end) or 0
   if queued <= (s.queued_faults or 0) then return end
@@ -259,10 +409,11 @@ local function on_race_level()
     trace('race reloaded: ' .. describe(run, cs))
     restore(run, cs, pending_restore.snap, false)
     snapshot = pending_restore.snap
+    verify_track = { snap = snapshot, ticks = 0 }
     trace('after restore: ' .. describe(run, cs))
     return
   end
-  snapshot = take_snapshot(run)
+  snapshot = take_snapshot(run, cs)
   trace('race start: ' .. describe(run, cs))
 end
 
@@ -454,13 +605,16 @@ local function at_event_start(cs, when)
   return false
 end
 
-local function travel()
+-- auto : relance déclenchée par le mod parce que le tracé avait changé.
+local function travel(auto)
   local run, cs = campaign()
   if not run then say('Restart cancelled: no active campaign run'); return end
-  trace('restart requested: ' .. describe(run, cs))
+  trace((auto and 'automatic restart: ' or 'restart requested: ') .. describe(run, cs))
   if not at_event_start(cs, 'before restore') then return end
   local snap = snapshot
+  if snap and not auto then snap.retries = 0 end
   if config.restore_run_state and snap and snap.run_id == int(function() return run.RunId end) then
+    log_changes(run, cs, snap)
     flush_queued_faults(run, snap)
     restore(run, cs, snap, true)
     restore_after_travel = { snap = snap, ticks = 0 }
@@ -514,6 +668,28 @@ end
 local tick_no = 0
 local last_credits = nil
 local race_level_loaded = false
+local MAX_TRACK_RETRIES = 2
+
+-- Le tirage de l'événement par le jeu dépend parfois d'autre chose que ce que le mod restaure :
+-- si la course relancée n'est pas sur le tracé du départ, on relance à nouveau.
+local function check_track(snap, now)
+  if not snap.track or now == snap.track then
+    if snap.retries > 0 then say('Back on ' .. now .. ' after ' .. snap.retries .. ' automatic restart(s)') end
+    snap.retries = 0
+    return
+  end
+  if not config.retry_if_track_changes then
+    say('Track changed on restart: ' .. snap.track .. ' -> ' .. now)
+    return
+  end
+  if snap.retries >= MAX_TRACK_RETRIES then
+    say('Track still different after ' .. snap.retries .. ' automatic restart(s): ' .. now .. ' instead of ' .. snap.track)
+    return
+  end
+  snap.retries = snap.retries + 1
+  say('Track changed on restart (' .. now .. ' instead of ' .. snap.track .. '), restarting again')
+  retry_at = tick_no + TICKS_PER_SEC
+end
 
 local function trace_credits()
   local run = campaign()
@@ -534,6 +710,23 @@ local function tick()
   if restore_after_travel then
     restore_after_travel.ticks = restore_after_travel.ticks + 1
     if restore_after_travel.ticks > TICKS_PER_SEC * 120 then restore_after_travel = nil end
+  end
+  if snapshot and not snapshot.track and tick_no % TICKS_PER_SEC == 0 then snapshot.track = known_track() end
+  if verify_track then
+    verify_track.ticks = verify_track.ticks + 1
+    local now = known_track()
+    if now then
+      local v = verify_track
+      verify_track = nil
+      check_track(v.snap, now)
+    elseif verify_track.ticks > 5 * TICKS_PER_SEC then
+      verify_track = nil
+    end
+  end
+  if retry_at and tick_no >= retry_at then
+    retry_at = nil
+    travel(true)
+    return
   end
   if restart then step_restart(); return end
 

@@ -8,6 +8,10 @@ return {
   -- compris), santé du véhicule, strikes et pièces défectueuses.
   restore_run_state = true,
 
+  -- Si la course relancée tombe sur un autre tracé que celui du départ (le jeu le fait parfois),
+  -- relance automatiquement, jusqu'à 2 fois, pour revenir au tracé d'origine.
+  retry_if_track_changes = true,
+
   -- Écrit le détail de chaque restart dans ue4ss\UE4SS.log (utile pour signaler un bug).
   debug = false,
 }
