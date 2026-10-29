@@ -65,11 +65,10 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 - It works with a gamepad, keyboard or mouse.
 - When a race starts, the mod records the parts of the run a race can change. Restarting puts
   them back before travelling: credits from before the side bet, vehicle health, strikes, faulty
-  parts, the event generation seed and the other values of the run (so you usually get the same
-  track again).
-- If the restarted race still lands on another track, the mod restarts again, up to twice
-  (`retry_if_track_changes`). If the track is still different after that, the race goes on with
-  the new track and the log says `Track still different`.
+  parts, the racers offered for a side bet, sponsor contract progress, the event generation seed
+  and the other values of the run (so you usually get the same track again).
+- The game sometimes picks another track anyway (see the known issue below). The log then says
+  `Track changed on restart`, and the next restart aims for the track you are racing on.
 - If the campaign is not at the start of an event when you click, the restart is cancelled
   without changing anything and the race goes on. The log then says `Restart cancelled`.
 
@@ -79,7 +78,8 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 |---|---|
 | `label`, `description` | Button text and description. `nil` follows the game language (English or French). |
 | `restore_run_state` | `true` puts the run back to its race start state. `false` only restarts. |
-| `retry_if_track_changes` | `true` restarts again, up to twice, when the restarted race lands on another track. `false` keeps the new track. |
+| `retry_if_track_changes` | `true` restarts again by itself, up to twice, when the restarted race lands on another track. Off by default: these restarts happen during the race intro, can stop the intros from being skipped until the game is restarted, and never brought the first track back in testing. |
+| `track_diagnostics` | `true` writes each race start, restart and reload in detail to `track_diag.log`, next to `config.lua`, to find out why the track sometimes changes. It only reads, but can cause a short stutter at race start and on restart. Off by default. |
 | `debug` | `true` logs every restart in detail in `UE4SS.log` (credits, health, parts, track). |
 
 ### Verified in game
@@ -90,11 +90,18 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 - A part that broke during the race is repaired on restart, and the race stays on the same track.
 - Restarting also works in races that have no campaign map node, such as the first race of a
   run.
+- No more stutter while playing: neither mod searches the game's objects during play any more
+  (2-hour session).
+- Not verified yet: putting back the side bet offers and sponsor contract progress.
 
 **Known issue**: on some map nodes, the game picks a different track each time it regenerates the
 race, even though the mod puts back the same run state before each restart. On 2026-10-29, on an
-Act 2 node, the first restart and both automatic restarts each landed on another track. The cause
-is not found yet.
+Act 2 node, the first restart and both automatic restarts each landed on another track. A capture
+of 26 restarts with `track_diagnostics` then caught one more change. Before that restart, every
+run value the game exposes matched the race start, except sponsor contract progress, lifetime
+credits and 2 of the 3 racers offered for a side bet. The mod now puts these back too, but it is
+not confirmed yet that this keeps the track. If it does not, the choice depends on state that the
+game keeps out of reach of mods.
 
 With `debug = true`, the log shows the credits, parts and track before and after each restart.
 Reports are welcome in the issues.
@@ -104,7 +111,8 @@ Reports are welcome in the issues.
 The game menu plays `MEDIA_Intro_FUSE_Ident.bk2` then `MEDIA_Intro_Brand_Ident.bk2` and waits for
 each one to end. The mod moves playback to the end of the video as soon as it starts, so the
 game gets its normal "video finished" event and carries on. The EULA, photosensitivity warning
-and "press any key" screens are untouched. No game file is modified.
+and "press any key" screens are untouched. No game file is modified. The mod stops watching once
+both videos are skipped.
 
 ## Why a rewrite
 
@@ -131,6 +139,11 @@ restart button for this game.
   and earlier crash in races that have no campaign map node, such as the first race of a run.
   This is fixed after v1.1.0: until the next release, replace `Scripts\main.lua` with the one from
   this repository.
+- **Stutters while playing**: up to v1.1.0, Restart Race looked for the pause menu through every
+  object of the game once per second, and Skip Intros looked for the video player every 100 ms
+  during the first 3 minutes. Each search takes about 15 ms, a whole frame at 60 fps. This is
+  fixed after v1.1.0: until the next release, replace the `Scripts\main.lua` of both mods with
+  the ones from this repository.
 - **After a game update**: update UE4SS Galactic Racer Edition first.
 - **Saves**: `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` on Windows (Linux: see
   [Linux (Proton)](#linux-proton)). Back them up before trying any mod.

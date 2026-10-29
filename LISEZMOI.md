@@ -67,11 +67,11 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 - Il se valide à la manette, au clavier ou à la souris.
 - Au départ de chaque course, le mod note l'état de la run. Au restart, il le remet avant de
   relancer : crédits d'avant la side bet, santé du véhicule, strikes, pièces défectueuses,
-  graine de génération de l'événement et autres valeurs de la run (pour retrouver en principe le
-  même tracé).
-- Si la course relancée tombe quand même sur un autre tracé, le mod relance encore, jusqu'à 2
-  fois (`retry_if_track_changes`). Si le tracé est toujours différent ensuite, la course continue
-  sur le nouveau tracé et le log indique `Track still different`.
+  pilotes proposés en side bet, progression des contrats de sponsor, graine de génération de
+  l'événement et autres valeurs de la run (pour retrouver en principe le même tracé).
+- Le jeu choisit parfois quand même un autre tracé (voir le problème connu plus bas). Le log
+  indique alors `Track changed on restart`, et le restart suivant vise le tracé sur lequel on
+  court.
 - Si le jeu n'est pas en "début d'événement" au moment du clic, le restart est annulé sans rien
   modifier et la course continue. Le log indique alors `Restart cancelled`.
 
@@ -81,7 +81,8 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 |---|---|
 | `label`, `description` | Texte du bouton et de sa description. `nil` = selon la langue du jeu (français ou anglais). |
 | `restore_run_state` | `true` : remet la run dans son état du départ. `false` : simple relance, comme le mod d'origine. |
-| `retry_if_track_changes` | `true` : relance encore, jusqu'à 2 fois, si la course relancée tombe sur un autre tracé. `false` : garde le nouveau tracé. |
+| `retry_if_track_changes` | `true` : relance d'elle-même, jusqu'à 2 fois, si la course relancée tombe sur un autre tracé. Désactivé par défaut : ces relances partent pendant l'intro de la course, peuvent empêcher de passer les intros jusqu'au redémarrage du jeu, et n'ont jamais ramené le tracé d'origine en test. |
+| `track_diagnostics` | `true` : écrit le détail de chaque départ, restart et rechargement de course dans `track_diag.log`, à côté de `config.lua`, pour trouver pourquoi le tracé change parfois. Lecture seule, mais peut causer une petite saccade au départ de la course et au restart. Désactivé par défaut. |
 | `debug` | `true` : détaille chaque restart dans `UE4SS.log` (crédits, santé, pièces, tracé). |
 
 ### Ce qui est vérifié en jeu
@@ -94,11 +95,20 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 - Le restart fonctionne aussi dans les courses sans nœud de campagne, comme la première course
   d'une run.
 - Skip Intros saute les deux vidéos de logos.
+- Plus de saccades en jeu : aucun des deux mods ne cherche plus les objets du jeu pendant qu'on
+  joue (session de 2 h).
+- Pas encore vérifié : la remise des pilotes proposés en side bet et de la progression des
+  contrats de sponsor.
 
 **Problème connu** : sur certains nœuds de la carte, le jeu choisit un autre tracé à chaque fois
 qu'il régénère la course, alors que le mod remet le même état de run avant chaque restart. Le
 29/10/2026, sur un nœud de l'acte 2, le premier restart et les deux relances automatiques sont
-chacun tombés sur un autre tracé. La cause n'est pas encore trouvée.
+chacun tombés sur un autre tracé. Une capture de 26 restarts avec `track_diagnostics` a ensuite
+attrapé un nouveau changement. Avant ce restart, toutes les valeurs de la run que le jeu expose
+étaient celles du départ, sauf la progression des contrats de sponsor, le total des crédits
+gagnés et 2 des 3 pilotes proposés en side bet. Le mod les remet aussi désormais, mais on ne sait
+pas encore si cela garde le tracé. Sinon, le choix dépend d'un état que le jeu garde hors de
+portée des mods.
 
 Avec `debug = true`, le log montre les crédits, les pièces et le tracé avant et après chaque
 restart. Les retours sont les bienvenus dans les issues.
@@ -108,7 +118,8 @@ restart. Les retours sont les bienvenus dans les issues.
 Le menu du jeu joue `MEDIA_Intro_FUSE_Ident.bk2` puis `MEDIA_Intro_Brand_Ident.bk2` et attend la
 fin de chacune. Le mod amène la lecture à la fin de la vidéo dès qu'elle démarre, et le jeu
 enchaîne normalement. Les écrans EULA, avertissement épilepsie et "appuyez sur une touche" ne
-sont pas touchés. Aucun fichier du jeu n'est modifié.
+sont pas touchés. Aucun fichier du jeu n'est modifié. Le mod arrête de surveiller dès que les
+deux vidéos sont passées.
 
 ## Pourquoi une réécriture
 
@@ -136,6 +147,11 @@ d'origine d'un bouton de restart pour ce jeu.
   la v1.1.0 et les versions précédentes plantent dans les courses sans nœud de campagne, comme la
   première course d'une run. C'est corrigé après la v1.1.0 : en attendant la prochaine release,
   remplacer `Scripts\main.lua` par celui de ce dépôt.
+- **Saccades en jeu** : jusqu'à la v1.1.0, Restart Race cherchait le menu pause parmi tous les
+  objets du jeu une fois par seconde, et Skip Intros cherchait le lecteur vidéo toutes les
+  100 ms pendant les 3 premières minutes. Chaque recherche prend environ 15 ms, soit une image
+  entière à 60 i/s. C'est corrigé après la v1.1.0 : en attendant la prochaine release, remplacer
+  le `Scripts\main.lua` des deux mods par ceux de ce dépôt.
 - **Après une mise à jour du jeu** : mettre d'abord UE4SS Galactic Racer Edition à jour.
 - **Sauvegardes** : `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` sous Windows (sous
   Linux, voir [Linux (Proton)](#linux-proton)). En faire une copie avant d'essayer un mod ne
