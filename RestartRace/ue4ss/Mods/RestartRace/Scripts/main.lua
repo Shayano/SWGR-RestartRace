@@ -20,7 +20,8 @@ local config = {
   label = nil,          -- nil : selon la langue du jeu
   description = nil,    -- nil : selon la langue du jeu
   restore_run_state = true,
-  retry_if_track_changes = true,
+  retry_if_track_changes = false,
+  track_diagnostics = false,
   debug = false,
 }
 do
@@ -94,6 +95,17 @@ local function campaign()
   local run = call(function() return cs.ActiveRun end)
   if not valid(run) then return nil end
   return run, cs
+end
+
+-- Diagnostic des changements de tracé (Scripts/track_diag.lua), chargé seulement sur demande.
+local diag = nil
+if config.track_diagnostics then
+  local ok, res = pcall(dofile, MOD_DIR .. '/Scripts/track_diag.lua')
+  if ok and type(res) == 'function' then
+    ok, res = pcall(res, { call = call, valid = valid, name_of = name_of, mod_dir = MOD_DIR,
+      game_instance = function() return cached('GfnGameInstance') end })
+  end
+  if ok and type(res) == 'table' then diag = res else say('Track diagnostics unavailable: ' .. tostring(res)) end
 end
 
 -- RacingGameState de la course chargée, transmis par NotifyOnNewObject. FindAllOf parcourt tous
@@ -520,6 +532,7 @@ local function on_race_level()
   restore_after_travel = nil
   if pending_restore and pending_restore.snap.run_id == int(function() return run.RunId end) then
     trace('race reloaded: ' .. describe(run, cs))
+    if diag then call(function() diag.after_reload(run, cs, describe(run, cs)) end) end
     restore(run, cs, pending_restore.snap, false)
     snapshot = pending_restore.snap
     verify_track = { snap = snapshot, ticks = 0 }
@@ -534,6 +547,7 @@ local function on_race_level()
     find_first('RacingGameState')
     trace(string.format('one object search (FindAllOf) took %.1f ms', (os.clock() - t0) * 1000))
   end
+  if diag then call(function() diag.race_start(run, cs, describe(run, cs)) end) end
 end
 
 ---------------------------------------------------------------------------------------------
@@ -743,6 +757,7 @@ local function travel(auto)
   end
   if not at_event_start(cs, 'after restore') then restore_after_travel = nil; return end
   say('Restarting race')
+  if diag then call(function() diag.before_travel(run, cs, auto, describe(run, cs)) end) end
   local ok, err = pcall(function() cs:TravelToStartOrContinueCampaign() end)
   if not ok then restore_after_travel = nil; say('Restart failed: ' .. tostring(err)) end
 end
@@ -792,21 +807,27 @@ local MAX_TRACK_RETRIES = 2
 -- Le tirage de l'événement par le jeu dépend parfois d'autre chose que ce que le mod restaure :
 -- si la course relancée n'est pas sur le tracé du départ, on relance à nouveau.
 local function check_track(snap, now)
-  if not snap.track or now == snap.track then
+  local target = snap.track
+  local retry = target and now ~= target and config.retry_if_track_changes and snap.retries < MAX_TRACK_RETRIES
+  -- Sauf pendant les relances automatiques, le tracé obtenu devient la référence : le restart
+  -- suivant doit ramener la course qu'on est en train de jouer, pas celle du tout premier départ.
+  if not retry then snap.track = now end
+  if diag then call(function() diag.track_result(target, now) end) end
+  if not target or now == target then
     if snap.retries > 0 then say('Back on ' .. now .. ' after ' .. snap.retries .. ' automatic restart(s)') end
     snap.retries = 0
     return
   end
   if not config.retry_if_track_changes then
-    say('Track changed on restart: ' .. snap.track .. ' -> ' .. now)
+    say('Track changed on restart: ' .. target .. ' -> ' .. now)
     return
   end
-  if snap.retries >= MAX_TRACK_RETRIES then
-    say('Track still different after ' .. snap.retries .. ' automatic restart(s): ' .. now .. ' instead of ' .. snap.track)
+  if not retry then
+    say('Track still different after ' .. snap.retries .. ' automatic restart(s): ' .. now .. ' instead of ' .. target)
     return
   end
   snap.retries = snap.retries + 1
-  say('Track changed on restart (' .. now .. ' instead of ' .. snap.track .. '), restarting again')
+  say('Track changed on restart (' .. now .. ' instead of ' .. target .. '), restarting again')
   retry_at = tick_no + TICKS_PER_SEC
 end
 
@@ -913,4 +934,5 @@ LoopInGameThreadWithDelay(TICK_MS, function()
   if not ok and tostring(err) ~= last_err then last_err = tostring(err); say('error: ' .. last_err) end
 end)
 
-say('Loaded' .. (click_hooked and '' or ' (click hook unavailable, detecting clicks by selection only)'))
+say('Loaded' .. (click_hooked and '' or ' (click hook unavailable, detecting clicks by selection only)')
+  .. (diag and ', track diagnostics written to track_diag.log' or ''))
