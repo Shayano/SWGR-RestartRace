@@ -80,7 +80,7 @@ Delete the mod folder from `Win64\ue4ss\Mods\`. To disable a mod without deletin
 | `restore_run_state` | `true` puts the run back to its race start state. `false` only restarts. |
 | `retry_if_track_changes` | `true` restarts again by itself, up to twice, when the restarted race lands on another track. Off by default: these restarts happen during the race intro, can stop the intros from being skipped until the game is restarted, and never brought the first track back in testing. |
 | `track_diagnostics` | `true` writes each race start, restart and reload in detail to `track_diag.log`, next to `config.lua`, to find out why the track sometimes changes. It only reads, but can cause a short stutter at race start and on restart. Off by default. |
-| `debug` | `true` logs every restart in detail in `UE4SS.log` (credits, health, parts, track). |
+| `debug` | `true` logs every restart in detail in `UE4SS.log` (credits, health, parts, track). Off by default: it adds extra reads and one object search per race, so turn it on only to report a bug. |
 
 ### Verified in game
 
@@ -137,13 +137,11 @@ restart button for this game.
   launch option (see [Linux (Proton)](#linux-proton)).
 - **The game crashes while a race loads** (`Crashdump written to ...\ue4ss\crash_*.dmp`): v1.1.0
   and earlier crash in races that have no campaign map node, such as the first race of a run.
-  This is fixed after v1.1.0: until the next release, replace `Scripts\main.lua` with the one from
-  this repository.
+  This is fixed in v1.2.0: update the mod.
 - **Stutters while playing**: up to v1.1.0, Restart Race looked for the pause menu through every
   object of the game once per second, and Skip Intros looked for the video player every 100 ms
   during the first 3 minutes. Each search takes about 15 ms, a whole frame at 60 fps. This is
-  fixed after v1.1.0: until the next release, replace the `Scripts\main.lua` of both mods with
-  the ones from this repository.
+  fixed in v1.2.0: update both mods.
 - **After a game update**: update UE4SS Galactic Racer Edition first.
 - **Saves**: `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` on Windows (Linux: see
   [Linux (Proton)](#linux-proton)). Back them up before trying any mod.

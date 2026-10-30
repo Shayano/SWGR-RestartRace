@@ -36,7 +36,7 @@ end
 
 local function tick()
   tick_no = tick_no + 1
-  if tick_no > GIVE_UP_AFTER_TICKS then return end
+  if tick_no > GIVE_UP_AFTER_TICKS or skips >= IDENT_COUNT then return end
   local players = call(function() return FindAllOf('BinkMediaPlayer') end)
   if type(players) ~= 'table' then return end
   for _, p in ipairs(players) do

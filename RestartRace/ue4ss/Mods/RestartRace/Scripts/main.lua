@@ -387,6 +387,11 @@ local function describe(run, cs)
     crumbs_summary(run, 'mPlayerPath'))
 end
 
+-- describe parcourt la run et ses pièces : à n'évaluer que si le log est activé.
+local function trace_state(label, run, cs)
+  if config.debug then say(label .. describe(run, cs)) end
+end
+
 local snapshot = nil              -- état de la run au chargement de la course en cours
 local restore_after_travel = nil  -- { snap, ticks } tant que la course relancée n'a pas chargé
 local verify_track = nil          -- { snap, ticks } : tracé de la course relancée à comparer
@@ -420,7 +425,7 @@ local function take_snapshot(run, cs)
   s.node = call(function() return run:GetCurrentNode() end)
   s.node_fields = valid(s.node) and read_fields(s.node) or nil
   s.racers = read_racers(run)
-  s.cs_fields = read_fields(cs)
+  s.cs_fields = config.debug and read_fields(cs) or nil  -- seulement pour log_changes
   s.struct_arrays = {}
   for _, f in ipairs(STRUCT_ARRAYS) do s.struct_arrays[f] = read_struct_array(run, f) end
   -- Les side bets sont souvent proposées juste après le premier tick : la boucle les capture
@@ -519,8 +524,10 @@ local function flush_queued_faults(run, s)
   local queued = call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end) or 0
   if queued <= (s.queued_faults or 0) then return end
   call(function() run:ApplyAffixFaultChanges() end)
-  trace('applied ' .. queued .. ' queued part fault(s) before restoring, '
-    .. tostring(call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end)) .. ' left')
+  if config.debug then
+    trace('applied ' .. queued .. ' queued part fault(s) before restoring, '
+      .. tostring(call(function() return run.mAffixesToTurnFaultyThroughoutRace:GetArrayNum() end)) .. ' left')
+  end
 end
 
 -- Appelé une fois par chargement de course, au premier tick après la création du
@@ -531,16 +538,16 @@ local function on_race_level()
   local pending_restore = restore_after_travel
   restore_after_travel = nil
   if pending_restore and pending_restore.snap.run_id == int(function() return run.RunId end) then
-    trace('race reloaded: ' .. describe(run, cs))
+    trace_state('race reloaded: ', run, cs)
     if diag then call(function() diag.after_reload(run, cs, describe(run, cs)) end) end
     restore(run, cs, pending_restore.snap, false)
     snapshot = pending_restore.snap
     verify_track = { snap = snapshot, ticks = 0 }
-    trace('after restore: ' .. describe(run, cs))
+    trace_state('after restore: ', run, cs)
     return
   end
   snapshot = take_snapshot(run, cs)
-  trace('race start: ' .. describe(run, cs))
+  trace_state('race start: ', run, cs)
   if config.debug then
     -- Coût d'une recherche d'objets, mesuré une fois par course pendant le chargement.
     local t0 = os.clock()
@@ -703,8 +710,7 @@ local function install(w, late)
     -- Menu découvert alors qu'il était déjà ouvert : on rend le focus à "Reprendre" pour ne
     -- pas laisser le menu sans focus après l'insertion.
     if late and valid(resume) then call(function() resume:SetFocus() end) end
-    trace('button added to ' .. (name_of(w) or 'pause menu')
-      .. ', track=' .. track_name())
+    if config.debug then trace('button added to ' .. (name_of(w) or 'pause menu') .. ', track=' .. track_name()) end
   end
   refresh_label(b)
   make_clickable(b)
@@ -742,7 +748,7 @@ end
 local function travel(auto)
   local run, cs = campaign()
   if not run then say('Restart cancelled: no active campaign run'); return end
-  trace((auto and 'automatic restart: ' or 'restart requested: ') .. describe(run, cs))
+  trace_state(auto and 'automatic restart: ' or 'restart requested: ', run, cs)
   if not at_event_start(cs, 'before restore') then return end
   local snap = snapshot
   if snap and not auto then snap.retries = 0 end
@@ -751,7 +757,7 @@ local function travel(auto)
     flush_queued_faults(run, snap)
     restore(run, cs, snap, true)
     restore_after_travel = { snap = snap, ticks = 0 }
-    trace('restored before travel: ' .. describe(run, cs))
+    trace_state('restored before travel: ', run, cs)
   elseif config.restore_run_state then
     say('No race start state captured, restarting without restoring the run')
   end

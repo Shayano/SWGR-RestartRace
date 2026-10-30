@@ -20,5 +20,6 @@ return {
   track_diagnostics = false,
 
   -- Écrit le détail de chaque restart dans ue4ss\UE4SS.log (utile pour signaler un bug).
+  -- Désactivé par défaut : cela ajoute des lectures et une recherche d'objets par course.
   debug = false,
 }

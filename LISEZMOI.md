@@ -83,7 +83,7 @@ renommer son `enabled.txt` (en `enabled.txt.off` par exemple).
 | `restore_run_state` | `true` : remet la run dans son état du départ. `false` : simple relance, comme le mod d'origine. |
 | `retry_if_track_changes` | `true` : relance d'elle-même, jusqu'à 2 fois, si la course relancée tombe sur un autre tracé. Désactivé par défaut : ces relances partent pendant l'intro de la course, peuvent empêcher de passer les intros jusqu'au redémarrage du jeu, et n'ont jamais ramené le tracé d'origine en test. |
 | `track_diagnostics` | `true` : écrit le détail de chaque départ, restart et rechargement de course dans `track_diag.log`, à côté de `config.lua`, pour trouver pourquoi le tracé change parfois. Lecture seule, mais peut causer une petite saccade au départ de la course et au restart. Désactivé par défaut. |
-| `debug` | `true` : détaille chaque restart dans `UE4SS.log` (crédits, santé, pièces, tracé). |
+| `debug` | `true` : détaille chaque restart dans `UE4SS.log` (crédits, santé, pièces, tracé). Désactivé par défaut : cela ajoute des lectures et une recherche d'objets par course, à n'activer que pour signaler un bug. |
 
 ### Ce qui est vérifié en jeu
 
@@ -145,13 +145,11 @@ d'origine d'un bouton de restart pour ce jeu.
   l'écriture). Sous Linux, vérifier l'option de lancement (voir [Linux (Proton)](#linux-proton)).
 - **Le jeu plante au chargement d'une course** (`Crashdump written to ...\ue4ss\crash_*.dmp`) :
   la v1.1.0 et les versions précédentes plantent dans les courses sans nœud de campagne, comme la
-  première course d'une run. C'est corrigé après la v1.1.0 : en attendant la prochaine release,
-  remplacer `Scripts\main.lua` par celui de ce dépôt.
+  première course d'une run. C'est corrigé dans la v1.2.0 : mettre le mod à jour.
 - **Saccades en jeu** : jusqu'à la v1.1.0, Restart Race cherchait le menu pause parmi tous les
   objets du jeu une fois par seconde, et Skip Intros cherchait le lecteur vidéo toutes les
   100 ms pendant les 3 premières minutes. Chaque recherche prend environ 15 ms, soit une image
-  entière à 60 i/s. C'est corrigé après la v1.1.0 : en attendant la prochaine release, remplacer
-  le `Scripts\main.lua` des deux mods par ceux de ce dépôt.
+  entière à 60 i/s. C'est corrigé dans la v1.2.0 : mettre les deux mods à jour.
 - **Après une mise à jour du jeu** : mettre d'abord UE4SS Galactic Racer Edition à jour.
 - **Sauvegardes** : `%LOCALAPPDATA%\StarWarsGalacticRacer\Saved\SaveGames\` sous Windows (sous
   Linux, voir [Linux (Proton)](#linux-proton)). En faire une copie avant d'essayer un mod ne
